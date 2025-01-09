@@ -40,7 +40,7 @@ MULTI TIER WEBSITE HOSTING
  >move inside data base
    {use intel;}
  >create a table
-    {create table data (firstname varchar(20), email varchar(25);}
+    {create table data (firstname varchar(20), email varchar(25));}
  >to see the result
     {select * from data;}
   
