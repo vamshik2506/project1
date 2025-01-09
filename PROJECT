@@ -1,0 +1,46 @@
+# project1
+MULTI TIER WEBSITE HOSTING 
+> AWS Services:- EC2,ELB,AMI,LAUNCH TEMPLETE,AUTOSCALING,RDS(MYSQL).
+> create EC2- install APACHE2,
+    {sudo apt install apache2 -y
+     sudo systemctl enable apache2
+     sudo systemctl start apache2}
+> add the website files to EC2 server
+ {wget <copy the link>}
+         OR
+ {GO TO CMD>
+   for pem:
+     scp -r -i "<path_of_key.pem_file" "<path_of_folder_to_copy>" ubuntu@publicip:/home/ubuntu/
+
+   for ppk:
+     pscp -r -i "path_of_key.ppk_file" "<path_of_folder_to_copy>" ubuntu@publicip:/home/ubuntu/
+   }
+>move the files to /var/www/html
+ {cd code/1243/
+  sudo mv images/ index.php /var/www/html
+  cd /var/www/html
+  }
+>delete the index.html file
+ {sudo rm index.html}
+>add the php repository
+ {sudo add-apt-repository -y ppa:ondrej/php}
+>install php,sqlclients and phpsqlclient
+ {sudo apt install php5.6 mysql-client php5.6-mysqli}
+>we have to configure index.php file
+  (in connection part--- >in server name relace with database endpoint---->username---->password---->dbname---)
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+>>CREATE A SQL DATABASE
+
+ >configure the security group of database ,allow the security groupn which attached to ec2
+ >connect to database
+   {mysql -h <rds-endpoint> -u <username> -p}
+ >creat a data base
+   {create database intel;}
+ >move inside data base
+   {use intel;}
+ >create a table
+    {create table data (firstname varchar(20), email varchar(25);}
+ >to see the result
+    {select * from data;}
+  
