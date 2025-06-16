@@ -1,58 +1,54 @@
-resource "aws_vpc" "main_vpc" {
-  cidr_block = var.vpc_cidr
-  tags       = { Name = var.vpc_name }
+provider "aws" {
+  region = var.region
 }
 
-resource "aws_subnet" "public_subnet" {
-  vpc_id                  = aws_vpc.main_vpc.id
-  cidr_block              = var.public_subnet_cidr
-  availability_zone       = var.public_subnet_az
+# ----------------------
+# VPC + Subnets
+# ----------------------
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+
+resource "aws_subnet" "public" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.1.0/24"
   map_public_ip_on_launch = true
-  tags                    = { Name = "public-subnet" }
+  availability_zone = "ap-south-1a"
 }
 
-resource "aws_subnet" "private_subnet" {
-  vpc_id            = aws_vpc.main_vpc.id
-  cidr_block        = var.private_subnet_cidr
-  availability_zone = var.private_subnet_az
-  tags              = { Name = "private-subnet" }
+resource "aws_subnet" "private" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "ap-south-1b"
 }
 
 resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main_vpc.id
-  tags   = { Name = "igw" }
+  vpc_id = aws_vpc.main.id
 }
 
 resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.main_vpc.id
-
+  vpc_id = aws_vpc.main.id
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw.id
   }
-
-  tags = { Name = "public-rt" }
 }
 
 resource "aws_route_table_association" "public_assoc" {
-  subnet_id      = aws_subnet.public_subnet.id
+  subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public_rt.id
 }
 
+# ----------------------
+# Security Groups
+# ----------------------
 resource "aws_security_group" "ec2_sg" {
   name   = "ec2-sg"
-  vpc_id = aws_vpc.main_vpc.id
+  vpc_id = aws_vpc.main.id
 
   ingress {
     from_port   = 80
     to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -63,18 +59,16 @@ resource "aws_security_group" "ec2_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = { Name = "ec2-sg" }
 }
 
 resource "aws_security_group" "rds_sg" {
   name   = "rds-sg"
-  vpc_id = aws_vpc.main_vpc.id
+  vpc_id = aws_vpc.main.id
 
   ingress {
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
+    from_port   = 3306
+    to_port     = 3306
+    protocol    = "tcp"
     security_groups = [aws_security_group.ec2_sg.id]
   }
 
@@ -84,125 +78,110 @@ resource "aws_security_group" "rds_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = { Name = "rds-sg" }
 }
 
-resource "aws_db_subnet_group" "rds_subnet_group" {
-  name       = "rds-subnet-group"
-  subnet_ids = [aws_subnet.private_subnet.id]
-
-  tags = { Name = "rds-subnet-group" }
+# ----------------------
+# RDS MySQL Instance
+# ----------------------
+resource "aws_db_subnet_group" "db_subnet_group" {
+  name       = "db-subnet-group"
+  subnet_ids = [aws_subnet.private.id]
 }
 
 resource "aws_db_instance" "mysql" {
-  identifier             = "php-app-db"
-  allocated_storage      = 20
-  engine                 = "mysql"
-  engine_version         = "8.0"
-  instance_class         = "db.t3.micro"
-  db_name                = var.db_name
-  username               = var.db_username
-  password               = var.db_password
-  skip_final_snapshot    = true
-  publicly_accessible    = false
+  allocated_storage    = 20
+  engine               = "mysql"
+  engine_version       = "8.0"
+  instance_class       = "db.t3.micro"
+  name                 = "intel"
+  username             = var.db_username
+  password             = var.db_password
+  db_subnet_group_name = aws_db_subnet_group.db_subnet_group.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
-  db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
-
-  tags = { Name = "php-db" }
+  skip_final_snapshot  = true
+  publicly_accessible  = false
 }
 
-resource "aws_launch_template" "web_template" {
-  name_prefix   = "web-launch-"
-  image_id      = var.ami_id
-  instance_type = var.instance_type
-  key_name      = var.key_name
+# ----------------------
+# EC2 Instance
+# ----------------------
+resource "aws_instance" "web" {
+  ami                    = "ami-04a5a6be1fa520234" # Amazon Linux 2023
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
+  associate_public_ip_address = true
+  key_name               = "vam" # Replace if needed
 
-  user_data = base64encode(<<-EOF
+  user_data = <<-EOF
               #!/bin/bash
               yum update -y
-              yum install -y httpd php php-mysqli wget unzip
+              amazon-linux-extras enable php8.2
+              yum clean metadata
+              yum install -y php php-mysqli httpd mysql
               systemctl enable httpd
               systemctl start httpd
-              mkdir -p /var/www/html/images
-              aws s3 cp s3://$cjpyashasavibucket/index.php /var/www/html/index.php
-              aws s3 cp s3://$cjpyashasavibucket/images/2.png /var/www/html/images/2.png
-              chown -R apache:apache /var/www/html
-              chmod -R 755 /var/www/html
-            EOF
-  )
+              cd /var/www/html
+              echo "${base64decode(data.template_file.index_php.rendered)}" > index.php
+              EOF
 
-  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name = "web-instance"
-    }
+  tags = {
+    Name = "PHP-App-Server"
   }
 }
 
-resource "aws_autoscaling_group" "web_asg" {
-  desired_capacity     = 1
-  max_size             = 2
-  min_size             = 1
-  vpc_zone_identifier  = [aws_subnet.public_subnet.id]
-  health_check_type    = "EC2"
-
-  launch_template {
-    id      = aws_launch_template.web_template.id
-    version = "$Latest"
-  }
-
-  tag {
-    key                 = "Name"
-    value               = "web-asg-instance"
-    propagate_at_launch = true
-  }
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "aws_lb" "app_lb" {
-  name               = "php-app-lb"
+# ----------------------
+# ALB
+# ----------------------
+resource "aws_lb" "alb" {
+  name               = "php-alb"
   internal           = false
   load_balancer_type = "application"
+  subnets            = [aws_subnet.public.id]
   security_groups    = [aws_security_group.ec2_sg.id]
-  subnets            = [aws_subnet.public_subnet.id]
-
-  tags = { Name = "php-app-lb" }
 }
 
-resource "aws_lb_target_group" "web_tg" {
-  name     = "web-tg"
+resource "aws_lb_target_group" "tg" {
+  name     = "php-tg"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main_vpc.id
-
-  health_check {
-    path                = "/"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    matcher             = "200"
-  }
+  vpc_id   = aws_vpc.main.id
 }
 
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.app_lb.arn
-  port              = "80"
+resource "aws_lb_listener" "listener" {
+  load_balancer_arn = aws_lb.alb.arn
+  port              = 80
   protocol          = "HTTP"
-
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.web_tg.arn
+    target_group_arn = aws_lb_target_group.tg.arn
   }
 }
 
-resource "aws_autoscaling_attachment" "asg_attachment" {
-  autoscaling_group_name = aws_autoscaling_group.web_asg.name
-  alb_target_group_arn   = aws_lb_target_group.web_tg.arn
+resource "aws_lb_target_group_attachment" "web" {
+  target_group_arn = aws_lb_target_group.tg.arn
+  target_id        = aws_instance.web.id
+  port             = 80
+}
+
+# ----------------------
+# Local file for PHP
+# ----------------------
+data "template_file" "index_php" {
+  template = file("index.php")
+
+  vars = {
+    db_host = aws_db_instance.mysql.address
+  }
+}
+
+# ----------------------
+# OUTPUT (outputs.tf)
+# ----------------------
+output "alb_dns" {
+  value = aws_lb.alb.dns_name
+}
+
+output "rds_endpoint" {
+  value = aws_db_instance.mysql.endpoint
 }
