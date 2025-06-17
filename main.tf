@@ -175,6 +175,11 @@ resource "aws_instance" "web" {
       <input type="submit" value="Submit">
   </form>
   PHP
+
+  systemctl restart apache2
+  cd /var/www/html/
+  ls
+  systemctl status apache2
 EOF
 
   tags = {
